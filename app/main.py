@@ -1,96 +1,69 @@
-import logging
-import os
-import joblib
-import numpy as np
-import pandas as pd
-from datetime import datetime
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+import joblib
+import pandas as pd
+import os
 
-# 1. Configuration du logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+MODEL_DIR = "models"
+app = FastAPI()
 
-# 2. Paramètres et Chargement
-MODEL_PATH = "models/final_model.pkl"
-SEUIL = 0.5  # Seuil de décision (50%)
+# Chargement des artefacts
+try:
+    model = joblib.load(os.path.join(MODEL_DIR, "final_model.pkl"))
+    scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.pkl"))
+    imputer = joblib.load(os.path.join(MODEL_DIR, "imputer.pkl"))
+    # feature_names contient les 7 colonnes (brutes + dti_ratio)
+    feature_names = joblib.load(os.path.join(MODEL_DIR, "feature_names.pkl"))
+except Exception as e:
+    print(f"⚠️ Erreur chargement : {e}")
+    model = None
 
-app = FastAPI(title="B2M Banking API - Production Version")
-
-# 3. Schémas de données (Pydantic)
 class LoanRequest(BaseModel):
-    loan_amt_outstanding: float = Field(..., gt=0)
-    income: float = Field(..., gt=0)
-    years_employed: int = Field(..., ge=0)
-    fico_score: int = Field(..., ge=300, le=850)
+    income: float
+    total_debt_outstanding: float
+    loan_amt_outstanding: float
+    fico_score: int
+    years_employed: int
+    credit_lines_outstanding: int
 
-class LoanResponse(BaseModel):
-    prediction: int
-    probability: float
-    verdict: str
-    timestamp: str
-
-# 4. Gestion du modèle
-def load_model():
-    if not os.path.exists(MODEL_PATH):
-        logger.error(f"❌ Fichier modèle introuvable : {MODEL_PATH}")
-        return None
-    return joblib.load(MODEL_PATH)
-
-model = load_model()
-
-# 5. Événements de cycle de vie
-@app.on_event("startup")
-async def startup_event():
-    logger.info("�� Application B2M démarrée")
-    if model:
-        logger.info(f"✅ Modèle chargé avec succès depuis : {MODEL_PATH}")
-    logger.info(f"⚙️ Seuil de classification : {SEUIL}")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("🛑 Application arrêtée")
-
-# 6. Endpoint /predict amélioré
-@app.post("/predict", response_model=LoanResponse)
+@app.post("/predict")
 def predict(request: LoanRequest):
-    """Prédit le risque de défaut pour un client."""
     if model is None:
-        logger.error("❌ Tentative de prédiction sans modèle chargé")
         raise HTTPException(status_code=503, detail="Modèle non disponible")
-
+    
     try:
-        logger.debug(f"Requête reçue : {request}")
+        # 1. Créer le DataFrame avec les 6 colonnes brutes
+        raw_df = pd.DataFrame([request.dict()])
         
-        # Préparation des données (on utilise un DataFrame pour garder les noms de colonnes)
-        input_df = pd.DataFrame([request.dict()])
+        # 2. Définir les colonnes brutes (sans le dti_ratio) pour l'imputer
+        # L'imputer a été entraîné sur ces colonnes dans cet ordre
+        raw_features = [
+            'credit_lines_outstanding', 'loan_amt_outstanding', 
+            'total_debt_outstanding', 'income', 'years_employed', 'fico_score'
+        ]
         
-        # Calcul des probabilités
-        proba = float(model.predict_proba(input_df)[0, 1])
-        prediction = int(proba >= SEUIL)
-        verdict = "REFUSÉ" if prediction == 1 else "APPROUVÉ"
+        # 3. ÉTAPE CLÉ : Imputer UNIQUEMENT sur les colonnes brutes
+        data_to_impute = raw_df[raw_features]
+        imputed_values = imputer.transform(data_to_impute)
+        df_clean = pd.DataFrame(imputed_values, columns=raw_features)
         
-        logger.info(
-            f"✅ Prédiction effectuée | "
-            f"FICO: {request.fico_score} | "
-            f"Prob: {proba:.4f} | "
-            f"Décision: {verdict}"
-        )
+        # 4. FEATURE ENGINEERING : Ajouter le ratio après l'imputation
+        df_clean['dti_ratio'] = df_clean['total_debt_outstanding'] / df_clean['income']
         
-        return LoanResponse(
-            prediction=prediction,
-            probability=round(proba, 4),
-            verdict=verdict,
-            timestamp=datetime.now().isoformat()
-        )
+        # 5. ALIGNEMENT FINAL : Ranger les 7 colonnes dans l'ordre du modèle
+        data_final = df_clean[feature_names]
         
-    except Exception as exc:
-        logger.error(f"❌ Erreur lors de la prédiction : {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Erreur interne du serveur")
-
-@app.get("/")
-def health_check():
-    return {"status": "ok", "model_loaded": model is not None}
+        # 6. SCALING ET PRÉDICTION
+        data_scaled = scaler.transform(data_final)
+        proba = float(model.predict_proba(data_scaled)[0, 1])
+        
+        verdict = "REFUSÉ" if proba > 0.5 else "APPROUVÉ"
+        
+        return {
+            "verdict": verdict,
+            "probability": f"{proba:.2%}",
+            "dti": round(df_clean['dti_ratio'].iloc[0], 4)
+        }
+    except Exception as e:
+        print(f"❌ Erreur API : {e}")
+        raise HTTPException(status_code=500, detail=str(e))

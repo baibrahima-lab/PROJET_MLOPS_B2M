@@ -1,180 +1,69 @@
-import pandas as pd
-import numpy as np
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 import joblib
+import pandas as pd
 import os
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.impute import SimpleImputer
 
-# Configuration
-<<<<<<< HEAD
-DATA_PATH = "data/bank-risk-manage_dataset.csv"
 MODEL_DIR = "models"
+app = FastAPI()
 
-def handle_outliers(df, columns):
-    """
-    Plafonne les valeurs aberrantes au 99ème percentile (Winsorization).
-    Cela évite que des revenus de 2 millions d'euros ne faussent la Régression Logistique.
-    """
-    df_clipped = df.copy()
-    for col in columns:
-        if col in df_clipped.columns:
-            upper_limit = df_clipped[col].quantile(0.99)
-            df_clipped[col] = df_clipped[col].clip(upper=upper_limit)
-    return df_clipped
+# Chargement des artefacts
+try:
+    model = joblib.load(os.path.join(MODEL_DIR, "final_model.pkl"))
+    scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.pkl"))
+    imputer = joblib.load(os.path.join(MODEL_DIR, "imputer.pkl"))
+    # feature_names contient les 7 colonnes (brutes + dti_ratio)
+    feature_names = joblib.load(os.path.join(MODEL_DIR, "feature_names.pkl"))
+except Exception as e:
+    print(f"⚠️ Erreur chargement : {e}")
+    model = None
 
-def load_and_preprocess_data(save_artifacts=True):
-    """
-    Pipeline MLOps Complet : Nettoyage -> Imputation -> Outliers -> Engineering -> Scaling.
-    """
-    if not os.path.exists(DATA_PATH):
-        raise FileNotFoundError(f"Fichier introuvable : {DATA_PATH}")
-    
-    df = pd.read_csv(DATA_PATH)
-    
-    # 1. Élagage initial
-    if 'customer_id' in df.columns:
-        df = df.drop(columns=['customer_id'])
-    
-    # 2. Gestion des données manquantes (Imputation)
-    imputer = SimpleImputer(strategy='median')
-    cols_to_fix = df.columns.drop('default') if 'default' in df.columns else df.columns
-    df[cols_to_fix] = imputer.fit_transform(df[cols_to_fix])
-    
-    # 3. Gestion des valeurs aberrantes (Outliers)
-    # On cible les colonnes financières identifiées dans l'EDA
-    cols_outliers = ['income', 'total_debt_outstanding', 'loan_amt_outstanding']
-    df = handle_outliers(df, cols_outliers)
-    
-    # 4. Feature Engineering (Le Ratio DTI)
-    # Formule : $DTI = \frac{Total\_Debt\_Outstanding}{Income}$
-    df['dti_ratio'] = df['total_debt_outstanding'] / df['income']
-    
-    # 5. Séparation Features/Cible
-    X = df.drop(columns=['default'])
-    y = df['default']
-    
-    # 6. Split Train/Test (Stratification pour le déséquilibre de 18.5%)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-    
-    # 7. Scaling (Standardisation)
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-    
-    # 8. SAUVEGARDE DES OBJETS (Le "Lineage")
-    if save_artifacts:
-        os.makedirs(MODEL_DIR, exist_ok=True)
-        joblib.dump(scaler, os.path.join(MODEL_DIR, "scaler.pkl"))
-        joblib.dump(imputer, os.path.join(MODEL_DIR, "imputer.pkl"))
-        joblib.dump(X.columns.tolist(), os.path.join(MODEL_DIR, "feature_names.pkl"))
-        print(f"✅ Artefacts (Scaler, Imputer, Features) sauvegardés dans {MODEL_DIR}")
-    
-    return X_train_scaled, X_test_scaled, y_train, y_test, X.columns
+class LoanRequest(BaseModel):
+    income: float
+    total_debt_outstanding: float
+    loan_amt_outstanding: float
+    fico_score: int
+    years_employed: int
+    credit_lines_outstanding: int
 
-def save_model(model, name):
-    """
-    Sauvegarde le modèle entraîné (ex: XGBoost) dans le dossier models.
-    """
-    os.makedirs(MODEL_DIR, exist_ok=True)
-    path = os.path.join(MODEL_DIR, f"{name}.pkl")
-    joblib.dump(model, path)
-    print(f"📦 Modèle [{name}] sauvegardé avec succès dans {path}")
-
- #Test rapide pour vérifier que tout fonctionne
-if __name__ == "__main__":
+@app.post("/predict")
+def predict(request: LoanRequest):
+    if model is None:
+        raise HTTPException(status_code=503, detail="Modèle non disponible")
+    
     try:
-        print("🧪 Lancement du test de nettoyage...")
-        X_train, X_test, y_train, y_test, cols = load_and_preprocess_data()
+        # 1. Créer le DataFrame avec les 6 colonnes brutes
+        raw_df = pd.DataFrame([request.dict()])
         
-        print("✅ TEST RÉUSSI !")
-        print(f"Structure des données : {X_train.shape[0]} lignes pour l'entraînement.")
-        print(f"Colonnes générées : {list(cols)}")
+        # 2. Définir les colonnes brutes (sans le dti_ratio) pour l'imputer
+        # L'imputer a été entraîné sur ces colonnes dans cet ordre
+        raw_features = [
+            'credit_lines_outstanding', 'loan_amt_outstanding', 
+            'total_debt_outstanding', 'income', 'years_employed', 'fico_score'
+        ]
         
+        # 3. ÉTAPE CLÉ : Imputer UNIQUEMENT sur les colonnes brutes
+        data_to_impute = raw_df[raw_features]
+        imputed_values = imputer.transform(data_to_impute)
+        df_clean = pd.DataFrame(imputed_values, columns=raw_features)
+        
+        # 4. FEATURE ENGINEERING : Ajouter le ratio après l'imputation
+        df_clean['dti_ratio'] = df_clean['total_debt_outstanding'] / df_clean['income']
+        
+        # 5. ALIGNEMENT FINAL : Ranger les 7 colonnes dans l'ordre du modèle
+        data_final = df_clean[feature_names]
+        
+        # 6. SCALING ET PRÉDICTION
+        data_scaled = scaler.transform(data_final)
+        proba = float(model.predict_proba(data_scaled)[0, 1])
+        
+        verdict = "REFUSÉ" if proba > 0.5 else "APPROUVÉ"
+        
+        return {
+            "verdict": verdict,
+            "probability": f"{proba:.2%}",
+            "dti": round(df_clean['dti_ratio'].iloc[0], 4)
+        }
     except Exception as e:
-        print(f"❌ ÉCHEC DU TEST : {e}")
-
-=======
-DATA_PATH = "PROJET_MLOPS_B2M/data/bank-risk-manage_dataset.csv"
-MODEL_DIR = "models"
-
-def handle_outliers(df, columns):
-    """
-    Plafonne les valeurs aberrantes au 99ème percentile (Winsorization).
-    Cela évite que des revenus de 2 millions d'euros ne faussent la Régression Logistique.
-    """
-    df_clipped = df.copy()
-    for col in columns:
-        if col in df_clipped.columns:
-            upper_limit = df_clipped[col].quantile(0.99)
-            df_clipped[col] = df_clipped[col].clip(upper=upper_limit)
-    return df_clipped
-
-def load_and_preprocess_data(save_artifacts=True):
-    """
-    Pipeline MLOps Complet : Nettoyage -> Imputation -> Outliers -> Engineering -> Scaling.
-    """
-    if not os.path.exists(DATA_PATH):
-        raise FileNotFoundError(f"Fichier introuvable : {DATA_PATH}")
-    
-    df = pd.read_csv(DATA_PATH)
-    
-    # 1. Élagage initial
-    if 'customer_id' in df.columns:
-        df = df.drop(columns=['customer_id'])
-    
-    # 2. Gestion des données manquantes (Imputation)
-    imputer = SimpleImputer(strategy='median')
-    cols_to_fix = df.columns.drop('default') if 'default' in df.columns else df.columns
-    df[cols_to_fix] = imputer.fit_transform(df[cols_to_fix])
-    
-    # 3. Gestion des valeurs aberrantes (Outliers)
-    # On cible les colonnes financières identifiées dans l'EDA
-    cols_outliers = ['income', 'total_debt_outstanding', 'loan_amt_outstanding']
-    df = handle_outliers(df, cols_outliers)
-    
-    # 4. Feature Engineering (Le Ratio DTI)
-    # Formule : $DTI = \frac{Total\_Debt\_Outstanding}{Income}$
-    df['dti_ratio'] = df['total_debt_outstanding'] / df['income']
-    
-    # 5. Séparation Features/Cible
-    X = df.drop(columns=['default'])
-    y = df['default']
-    
-    # 6. Split Train/Test (Stratification pour le déséquilibre de 18.5%)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-    
-    # 7. Scaling (Standardisation)
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-    
-    # 8. SAUVEGARDE DES OBJETS (Le "Lineage")
-    if save_artifacts:
-        os.makedirs(MODEL_DIR, exist_ok=True)
-        joblib.dump(scaler, os.path.join(MODEL_DIR, "scaler.pkl"))
-        joblib.dump(imputer, os.path.join(MODEL_DIR, "imputer.pkl"))
-        joblib.dump(X.columns.tolist(), os.path.join(MODEL_DIR, "feature_names.pkl"))
-        print(f"✅ Artefacts (Scaler, Imputer, Features) sauvegardés dans {MODEL_DIR}")
-    
-    return X_train_scaled, X_test_scaled, y_train, y_test, X.columns
-
- #Test rapide pour vérifier que tout fonctionne
-if __name__ == "__main__":
-    try:
-        print("🧪 Lancement du test de nettoyage...")
-        X_train, X_test, y_train, y_test, cols = load_and_preprocess_data()
-        
-        print("✅ TEST RÉUSSI !")
-        print(f"Structure des données : {X_train.shape[0]} lignes pour l'entraînement.")
-        print(f"Colonnes générées : {list(cols)}")
-        
-    except Exception as e:
-        print(f"❌ ÉCHEC DU TEST : {e}")
-
->>>>>>> upstream/developpement
-    
+        print(f"❌ Erreur API : {e}")
+        raise HTTPException(status_code=500, detail=str(e))
