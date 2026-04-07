@@ -7,7 +7,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 
 # Configuration
-DATA_PATH = "PROJET_MLOPS_B2M/data/bank-risk-manage_dataset.csv"
+DATA_PATH = "data/bank-risk-manage_dataset.csv"
 MODEL_DIR = "models"
 
 def handle_outliers(df, columns):
@@ -72,6 +72,15 @@ def load_and_preprocess_data(save_artifacts=True):
         print(f"✅ Artefacts (Scaler, Imputer, Features) sauvegardés dans {MODEL_DIR}")
     
     return X_train_scaled, X_test_scaled, y_train, y_test, X.columns
+
+def save_model(model, name):
+    """
+    Sauvegarde le modèle entraîné (ex: XGBoost) dans le dossier models.
+    """
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    path = os.path.join(MODEL_DIR, f"{name}.pkl")
+    joblib.dump(model, path)
+    print(f"📦 Modèle [{name}] sauvegardé avec succès dans {path}")
 
  #Test rapide pour vérifier que tout fonctionne
 if __name__ == "__main__":
