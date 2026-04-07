@@ -6,8 +6,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 
-# Configuration
-DATA_PATH = "PROJET_MLOPS_B2M/data/bank-risk-manage_dataset.csv"
+# Configuration (Chemin relatif gardé depuis la version de Mahamat)
+DATA_PATH = "data/bank-risk-manage_dataset.csv"
 MODEL_DIR = "models"
 
 def handle_outliers(df, columns):
@@ -46,7 +46,7 @@ def load_and_preprocess_data(save_artifacts=True):
     df = handle_outliers(df, cols_outliers)
     
     # 4. Feature Engineering (Le Ratio DTI)
-    # Formule : $DTI = \frac{Total\_Debt\_Outstanding}{Income}$
+    # Formule : DTI = Total_Debt_Outstanding / Income
     df['dti_ratio'] = df['total_debt_outstanding'] / df['income']
     
     # 5. Séparation Features/Cible
@@ -73,7 +73,16 @@ def load_and_preprocess_data(save_artifacts=True):
     
     return X_train_scaled, X_test_scaled, y_train, y_test, X.columns
 
- #Test rapide pour vérifier que tout fonctionne
+def save_model(model, name):
+    """
+    Sauvegarde le modèle entraîné (ex: XGBoost) dans le dossier models.
+    """
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    path = os.path.join(MODEL_DIR, f"{name}.pkl")
+    joblib.dump(model, path)
+    print(f"📦 Modèle [{name}] sauvegardé avec succès dans {path}")
+
+# Test rapide pour vérifier que tout fonctionne
 if __name__ == "__main__":
     try:
         print("🧪 Lancement du test de nettoyage...")
@@ -85,5 +94,3 @@ if __name__ == "__main__":
         
     except Exception as e:
         print(f"❌ ÉCHEC DU TEST : {e}")
-
-    
