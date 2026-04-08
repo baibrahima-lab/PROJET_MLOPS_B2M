@@ -7,6 +7,11 @@ import os
 MODEL_DIR = "models"
 app = FastAPI()
 
+@app.get("/")
+def read_root():
+    """Endpoint de vérification de santé de l'API"""
+    return {"status": "online", "project": "B2M MLOps Scoring"}
+
 # Chargement des artefacts
 try:
     model = joblib.load(os.path.join(MODEL_DIR, "final_model.pkl"))
