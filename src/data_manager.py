@@ -46,7 +46,7 @@ def load_and_preprocess_data(save_artifacts=True):
     df = handle_outliers(df, cols_outliers)
     
     # 4. Feature Engineering (Le Ratio DTI)
-    # Formule : $DTI = \frac{Total\_Debt\_Outstanding}{Income}$
+    # Formule : DTI = Total_Debt_Outstanding / Income
     df['dti_ratio'] = df['total_debt_outstanding'] / df['income']
     
     # 5. Séparation Features/Cible
@@ -82,7 +82,7 @@ def save_model(model, name):
     joblib.dump(model, path)
     print(f"📦 Modèle [{name}] sauvegardé avec succès dans {path}")
 
- #Test rapide pour vérifier que tout fonctionne
+# Test rapide pour vérifier que tout fonctionne
 if __name__ == "__main__":
     try:
         print("🧪 Lancement du test de nettoyage...")
