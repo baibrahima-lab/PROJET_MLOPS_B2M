@@ -1,66 +1,101 @@
 import pandas as pd
+import numpy as np
 import mlflow
 import mlflow.sklearn
 import mlflow.xgboost
+import socket
+import subprocess
+import sys
+import time
+import os
+from mlflow import MlflowClient
 from xgboost import XGBClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import recall_score, f1_score, accuracy_score
 
-# Import local 
+# Importation locale
 from data_manager import load_and_preprocess_data, save_model
 
+# --- CONFIGURATION (Notions TP) ---
+HOST = "127.0.0.1"
+PORT = 8080
+TRACKING_URI = f"http://{HOST}:{PORT}"
+MODEL_NAME = "B2M_Scoring_Champion" # Nom dans le Model Registry
+
+def ensure_mlflow_server():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if s.connect_ex((HOST, PORT)) == 0: return
+    
+    print(f"🛰️ Lancement automatique du serveur MLflow...")
+    subprocess.Popen([
+        sys.executable, "-m", "mlflow", "server",
+        "--host", HOST, "--port", str(PORT),
+        "--backend-store-uri", "sqlite:///mlflow.db",
+        "--default-artifact-root", "./mlruns"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(3)
+
 def run_training():
-    mlflow.set_experiment("B2M_Scoring_Loan")
-    print("🚀 Début du benchmarking MLOps (3 modèles)...")
-    
-    # 1. Chargement des données déjà scalées et nettoyées (outliers, NaN gérés)
+    ensure_mlflow_server()
+    mlflow.set_tracking_uri(TRACKING_URI)
+    client = MlflowClient(tracking_uri=TRACKING_URI)
+
+    # 1. Tags d'Expérience (Notion TP)
+    exp_name = "B2M_Scoring_Loan_V2"
+    exp_tags = {
+        "project_name": "B2M-Banking",
+        "team": "Stores-ML-B2M",
+        "mlflow.note.content": "Pipeline automatisé avec Model Registry."
+    }
+
+    exp = client.get_experiment_by_name(exp_name)
+    experiment_id = exp.experiment_id if exp else client.create_experiment(name=exp_name, tags=exp_tags)
+
     X_train, X_test, y_train, y_test, feat_names = load_and_preprocess_data()
-    
-    # 2. Définition du dictionnaire de modèles (Consigne : 3 algos)
+    input_example = pd.DataFrame(X_train[:3], columns=feat_names) # Signature propre
+
     models = {
         "Logistic_Regression": LogisticRegression(max_iter=1000),
-        "Random_Forest": RandomForestClassifier(n_estimators=100, random_state=42),
         "XGBoost": XGBClassifier(n_estimators=100, scale_pos_weight=5, learning_rate=0.1)
     }
 
     for name, model in models.items():
-        with mlflow.start_run(run_name=f"Run_{name}"):
-            try:
-                print(f"--- Entraînement de {name} ---")
+        with mlflow.start_run(run_name=f"Run_{name}", experiment_id=experiment_id) as run:
+            run_id = run.info.run_id
+            model.fit(X_train, y_train)
+            
+            # Métriques
+            y_pred = model.predict(X_test)
+            rec = recall_score(y_test, y_pred)
+            mlflow.log_metric("recall", rec)
+            
+            # --- AUTOMATISATION 1 : Logging avec Signature ---
+            if name == "XGBoost":
+                # On log le modèle et on l'enregistre dans le catalogue (Registry)
+                mlflow.xgboost.log_model(
+                    model, 
+                    artifact_path="model", 
+                    input_example=input_example,
+                    registered_model_name=MODEL_NAME # <--- Création auto dans le catalogue
+                )
+                save_model(model, "final_model")
                 
-                # Entraînement
-                model.fit(X_train, y_train)
+                # --- AUTOMATISATION 2 : Transition vers Production ---
+                # On récupère la dernière version enregistrée
+                latest_version = client.get_latest_versions(MODEL_NAME, stages=["None"])[0].version
                 
-                # Prédictions
-                y_pred = model.predict(X_test)
+                # On le marque comme "Production" (Alias moderne de MLflow 2.x)
+                client.set_registered_model_alias(MODEL_NAME, "champion", latest_version)
                 
-                # 3. Calcul des métriques (Crucial pour le risque bancaire)
-                acc = accuracy_score(y_test, y_pred)
-                rec = recall_score(y_test, y_pred) # $$Recall = \frac{TP}{TP + FN}$$
-                f1 = f1_score(y_test, y_pred)
+                # Ou l'ancien système de "Stages" (plus compatible avec certains TPs)
+                client.transition_model_version_stage(
+                    name=MODEL_NAME,
+                    version=latest_version,
+                    stage="Production"
+                )
                 
-                # 4. Logging MLflow
-                mlflow.log_param("model_type", name)
-                mlflow.log_metric("accuracy", acc)
-                mlflow.log_metric("recall", rec)
-                mlflow.log_metric("f1_score", f1)
-                
-                # Sauvegarde du modèle dans MLflow (Lineage)
-                if name == "XGBoost":
-                    mlflow.xgboost.log_model(model, "model")
-                else:
-                    mlflow.sklearn.log_model(model, "model")
-                
-                print(f"✅ {name} -> Accuracy: {acc:.4f} | Recall: {rec:.4f}")
-                
-                # Sauvegarde locale du "Champion" (ex: XGBoost) pour l'API
-                if name == "XGBoost":
-                    save_model(model, "final_model")
-                    
-            except Exception as e:
-                print(f"❌ Erreur sur {name} : {e}")
-                mlflow.log_param("error", str(e))
+                print(f"🏆 {name} (v{latest_version}) est maintenant le CHAMPION en Production !")
 
 if __name__ == "__main__":
     run_training()

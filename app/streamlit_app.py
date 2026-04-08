@@ -23,7 +23,7 @@ if st.button("Lancer l'analyse"):
     }
     
     try:
-        response = requests.post("http://127.0.0.1:8000/predict", json=payload)
+        response = requests.post("http://api:8000/predict", json=payload)
         res = response.json()
         
         if response.status_code == 200:
@@ -39,3 +39,6 @@ if st.button("Lancer l'analyse"):
             st.error(f"Erreur API : {res.get('detail', 'Inconnue')}")
     except:
         st.error("L'API n'est pas lancée (uvicorn).")
+
+
+       

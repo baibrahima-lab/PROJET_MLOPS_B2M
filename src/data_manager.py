@@ -1,98 +1,101 @@
 import pandas as pd
 import numpy as np
-import joblib
+import mlflow
+import mlflow.sklearn
+import mlflow.xgboost
+import socket
+import subprocess
+import sys
+import time
 import os
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.impute import SimpleImputer
+from mlflow import MlflowClient
+from xgboost import XGBClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import recall_score, f1_score, accuracy_score
 
-# Configuration
-DATA_PATH = "data/bank-risk-manage_dataset.csv"
-MODEL_DIR = "models"
+# Importation locale
+from data_manager import load_and_preprocess_data, save_model
 
-def handle_outliers(df, columns):
-    """
-    Plafonne les valeurs aberrantes au 99ème percentile (Winsorization).
-    Cela évite que des revenus de 2 millions d'euros ne faussent la Régression Logistique.
-    """
-    df_clipped = df.copy()
-    for col in columns:
-        if col in df_clipped.columns:
-            upper_limit = df_clipped[col].quantile(0.99)
-            df_clipped[col] = df_clipped[col].clip(upper=upper_limit)
-    return df_clipped
+# --- CONFIGURATION (Notions TP) ---
+HOST = "127.0.0.1"
+PORT = 8080
+TRACKING_URI = f"http://{HOST}:{PORT}"
+MODEL_NAME = "B2M_Scoring_Champion" # Nom dans le Model Registry
 
-def load_and_preprocess_data(save_artifacts=True):
-    """
-    Pipeline MLOps Complet : Nettoyage -> Imputation -> Outliers -> Engineering -> Scaling.
-    """
-    if not os.path.exists(DATA_PATH):
-        raise FileNotFoundError(f"Fichier introuvable : {DATA_PATH}")
+def ensure_mlflow_server():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if s.connect_ex((HOST, PORT)) == 0: return
     
-    df = pd.read_csv(DATA_PATH)
-    
-    # 1. Élagage initial
-    if 'customer_id' in df.columns:
-        df = df.drop(columns=['customer_id'])
-    
-    # 2. Gestion des données manquantes (Imputation)
-    imputer = SimpleImputer(strategy='median')
-    cols_to_fix = df.columns.drop('default') if 'default' in df.columns else df.columns
-    df[cols_to_fix] = imputer.fit_transform(df[cols_to_fix])
-    
-    # 3. Gestion des valeurs aberrantes (Outliers)
-    # On cible les colonnes financières identifiées dans l'EDA
-    cols_outliers = ['income', 'total_debt_outstanding', 'loan_amt_outstanding']
-    df = handle_outliers(df, cols_outliers)
-    
-    # 4. Feature Engineering (Le Ratio DTI)
-    # Formule : $DTI = \frac{Total\_Debt\_Outstanding}{Income}$
-    df['dti_ratio'] = df['total_debt_outstanding'] / df['income']
-    
-    # 5. Séparation Features/Cible
-    X = df.drop(columns=['default'])
-    y = df['default']
-    
-    # 6. Split Train/Test (Stratification pour le déséquilibre de 18.5%)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-    
-    # 7. Scaling (Standardisation)
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-    
-    # 8. SAUVEGARDE DES OBJETS (Le "Lineage")
-    if save_artifacts:
-        os.makedirs(MODEL_DIR, exist_ok=True)
-        joblib.dump(scaler, os.path.join(MODEL_DIR, "scaler.pkl"))
-        joblib.dump(imputer, os.path.join(MODEL_DIR, "imputer.pkl"))
-        joblib.dump(X.columns.tolist(), os.path.join(MODEL_DIR, "feature_names.pkl"))
-        print(f"✅ Artefacts (Scaler, Imputer, Features) sauvegardés dans {MODEL_DIR}")
-    
-    return X_train_scaled, X_test_scaled, y_train, y_test, X.columns
+    print(f"🛰️ Lancement automatique du serveur MLflow...")
+    subprocess.Popen([
+        sys.executable, "-m", "mlflow", "server",
+        "--host", HOST, "--port", str(PORT),
+        "--backend-store-uri", "sqlite:///mlflow.db",
+        "--default-artifact-root", "./mlruns"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(3)
 
-def save_model(model, name):
-    """
-    Sauvegarde le modèle entraîné (ex: XGBoost) dans le dossier models.
-    """
-    os.makedirs(MODEL_DIR, exist_ok=True)
-    path = os.path.join(MODEL_DIR, f"{name}.pkl")
-    joblib.dump(model, path)
-    print(f"📦 Modèle [{name}] sauvegardé avec succès dans {path}")
+def run_training():
+    ensure_mlflow_server()
+    mlflow.set_tracking_uri(TRACKING_URI)
+    client = MlflowClient(tracking_uri=TRACKING_URI)
 
- #Test rapide pour vérifier que tout fonctionne
+    # 1. Tags d'Expérience (Notion TP)
+    exp_name = "B2M_Scoring_Loan_V2"
+    exp_tags = {
+        "project_name": "B2M-Banking",
+        "team": "Stores-ML-B2M",
+        "mlflow.note.content": "Pipeline automatisé avec Model Registry."
+    }
+
+    exp = client.get_experiment_by_name(exp_name)
+    experiment_id = exp.experiment_id if exp else client.create_experiment(name=exp_name, tags=exp_tags)
+
+    X_train, X_test, y_train, y_test, feat_names = load_and_preprocess_data()
+    input_example = pd.DataFrame(X_train[:3], columns=feat_names) # Signature propre
+
+    models = {
+        "Logistic_Regression": LogisticRegression(max_iter=1000),
+        "XGBoost": XGBClassifier(n_estimators=100, scale_pos_weight=5, learning_rate=0.1)
+    }
+
+    for name, model in models.items():
+        with mlflow.start_run(run_name=f"Run_{name}", experiment_id=experiment_id) as run:
+            run_id = run.info.run_id
+            model.fit(X_train, y_train)
+            
+            # Métriques
+            y_pred = model.predict(X_test)
+            rec = recall_score(y_test, y_pred)
+            mlflow.log_metric("recall", rec)
+            
+            # --- AUTOMATISATION 1 : Logging avec Signature ---
+            if name == "XGBoost":
+                # On log le modèle et on l'enregistre dans le catalogue (Registry)
+                mlflow.xgboost.log_model(
+                    model, 
+                    artifact_path="model", 
+                    input_example=input_example,
+                    registered_model_name=MODEL_NAME # <--- Création auto dans le catalogue
+                )
+                save_model(model, "final_model")
+                
+                # --- AUTOMATISATION 2 : Transition vers Production ---
+                # On récupère la dernière version enregistrée
+                latest_version = client.get_latest_versions(MODEL_NAME, stages=["None"])[0].version
+                
+                # On le marque comme "Production" (Alias moderne de MLflow 2.x)
+                client.set_registered_model_alias(MODEL_NAME, "champion", latest_version)
+                
+                # Ou l'ancien système de "Stages" (plus compatible avec certains TPs)
+                client.transition_model_version_stage(
+                    name=MODEL_NAME,
+                    version=latest_version,
+                    stage="Production"
+                )
+                
+                print(f"🏆 {name} (v{latest_version}) est maintenant le CHAMPION en Production !")
+
 if __name__ == "__main__":
-    try:
-        print("🧪 Lancement du test de nettoyage...")
-        X_train, X_test, y_train, y_test, cols = load_and_preprocess_data()
-        
-        print("✅ TEST RÉUSSI !")
-        print(f"Structure des données : {X_train.shape[0]} lignes pour l'entraînement.")
-        print(f"Colonnes générées : {list(cols)}")
-        
-    except Exception as e:
-        print(f"❌ ÉCHEC DU TEST : {e}")
-
-    
+    run_training()
