@@ -1,5 +1,5 @@
 # 🏦 Système de Prédiction de Risque de Crédit (MLOps)
-
+![CI Status](https://github.com/Bourko235/PROJET_MLOPS_B2M/actions/workflows/ci.yml/badge.svg)
 ![Status](https://img.shields.io/badge/Status-In--Development-yellow)
 ![Python](https://img.shields.io/badge/Python-3.9+-blue)
 ![MLflow](https://img.shields.io/badge/MLflow-Tracking-orange)
