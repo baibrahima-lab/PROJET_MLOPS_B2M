@@ -35,7 +35,7 @@ jobs:
         # On définit le PYTHONPATH pour que les imports src.xxx fonctionnent
         export PYTHONPATH=$PYTHONPATH:.
         # On lance le manager pour voir s'il génère bien les artefacts
-        python3 PROJET_MLOPS/PROJET_MLOPS_B2M/src/data_manager.py
+        python3 src/data_manager.py
         
     - name: ⚙️ Lancement des tests unitaires
       run: |
