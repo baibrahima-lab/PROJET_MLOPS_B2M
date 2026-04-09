@@ -5,11 +5,22 @@ import time
 import requests
 
 # Lancer l'API en arrière-plan si elle n'est pas détectée
+# 1. Utilise une variable pour l'URL (plus facile à maintenir)
+API_BASE_URL = "http://127.0.0.1:8000"
+
+# 2. Vérification intelligente
 try:
-    requests.get("http://127.0.0.1:8000/predict")
+    # On vérifie la racine (/) et non (/predict)
+    response = requests.get(API_BASE_URL, timeout=1)
+    # Si on reçoit n'importe quel code (200, 404, 405), c'est que le serveur RÉPOND
+    api_ready = True
 except:
-    subprocess.Popen(["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"])
-    time.sleep(5) # On laisse 5s à l'API pour démarrer
+    api_ready = False
+
+if not api_ready:
+    with st.spinner("Démarrage du moteur de calcul (API)..."):
+        subprocess.Popen(["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"])
+        time.sleep(10) # On laisse un peu plus de temps sur le Cloud
 
 st.set_page_config(page_title="B2M Bank - Scoring", page_icon="🏦")
 st.title("🏦 Système de Scoring Crédit - B2M")
