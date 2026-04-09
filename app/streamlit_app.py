@@ -1,5 +1,15 @@
 import streamlit as st
 import requests
+import subprocess
+import time
+import requests
+
+# Lancer l'API en arrière-plan si elle n'est pas détectée
+try:
+    requests.get("http://localhost:8000/")
+except:
+    subprocess.Popen(["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"])
+    time.sleep(5) # On laisse 5s à l'API pour démarrer
 
 st.set_page_config(page_title="B2M Bank - Scoring", page_icon="🏦")
 st.title("🏦 Système de Scoring Crédit - B2M")
