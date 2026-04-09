@@ -1,10 +1,3 @@
-C'est tout à fait pertinent. Le Markdown est le standard pour la documentation technique : il permet un rendu propre, une structure hiérarchisée et une intégration directe des badges de statut.
-
-Voici la version intégrale, **ultra-détaillée et prête à l'emploi** de ton fichier `README.md`. Elle inclut toutes les spécificités de ton projet (Python 3.12, scikit-learn 1.3.2, FastAPI, XGBoost et AWS).
-
----
-
-```markdown
 # 🏦 Système de Scoring de Crédit Intelligent (MLOps)
 
 ![CI Status](https://github.com/Bourko235/PROJET_MLOPS_B2M/actions/workflows/ci.yml/badge.svg)
