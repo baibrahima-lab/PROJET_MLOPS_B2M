@@ -23,15 +23,39 @@ def start_api():
 # APPEL DE LA FONCTION
 api_is_up = start_api()
 
-# AFFICHAGE CONDITIONNEL
-if not api_is_up:
-    # On affiche un avertissement jaune pendant le démarrage
-    st.warning("Le moteur de calcul démarre... Veuillez patienter quelques secondes.")
-    # On force un rafraîchissement automatique après 5s
-    time.sleep(5)
-    st.rerun() 
-else:
-    st.success("✅ Moteur de calcul (API) connecté et prêt !")
+# ... (ton code de vérification globale qui affiche le bandeau vert) ...
+
+if st.button("Lancer l'analyse"):
+    # ❌ SUPPRIME l'ancien "if not api_is_up: st.error(...)" ici
+    
+    with st.spinner("Analyse du profil en cours..."):
+        # 1. Préparer les données (tes sliders/inputs)
+        data = {
+            "income": income,
+            "debt": debt,
+            "loan_amount": loan_amount,
+            "fico_score": fico_score,
+            "years_employed": years_employed,
+            "open_acc": open_acc
+        }
+        
+        try:
+            # 2. Envoyer la requête POST à l'API
+            response = requests.post(f"{API_URL}/predict", json=data)
+            
+            if response.status_code == 200:
+                prediction = response.json()
+                # 3. Afficher le résultat
+                st.metric("Probabilité de défaut", f"{prediction['probability']:.2%}")
+                if prediction['prediction'] == 1:
+                    st.error("⚠️ Risque élevé détecté")
+                else:
+                    st.success("✅ Profil validé")
+            else:
+                st.error(f"Erreur API : {response.status_code}")
+                
+        except Exception as e:
+            st.error(f"Erreur de connexion : {e}")
 
 st.set_page_config(page_title="B2M Bank - Scoring", page_icon="🏦")
 st.title("🏦 Système de Scoring Crédit - B2M")
