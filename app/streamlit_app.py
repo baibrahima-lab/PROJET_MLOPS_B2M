@@ -1,5 +1,37 @@
 import streamlit as st
 import requests
+import subprocess
+import time
+import requests
+
+
+# On définit l'URL
+API_URL = "http://127.0.0.1:8000"
+
+def start_api():
+    try:
+        # On teste la connexion
+        res = requests.get(API_URL, timeout=1)
+        if res.status_code == 200:
+            return True
+    except:
+        # Si ça échoue, on lance uvicorn
+        subprocess.Popen(["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"])
+        time.sleep(8) # On attend que ça chauffe
+        return False
+
+# APPEL DE LA FONCTION
+api_is_up = start_api()
+
+# AFFICHAGE CONDITIONNEL
+if not api_is_up:
+    # On affiche un avertissement jaune pendant le démarrage
+    st.warning("Le moteur de calcul démarre... Veuillez patienter quelques secondes.")
+    # On force un rafraîchissement automatique après 5s
+    time.sleep(5)
+    st.rerun() 
+else:
+    st.success(" prêt !")
 
 st.set_page_config(page_title="B2M Bank - Scoring", page_icon="🏦")
 st.title("🏦 Système de Scoring Crédit - B2M")
@@ -23,7 +55,7 @@ if st.button("Lancer l'analyse"):
     }
     
     try:
-        response = requests.post("http://api:8000/predict", json=payload)
+        response = requests.post("http://127.0.0.1:8000/predict", json=payload)
         res = response.json()
         
         if response.status_code == 200:
