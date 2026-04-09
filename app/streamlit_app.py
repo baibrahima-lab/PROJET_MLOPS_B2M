@@ -55,7 +55,7 @@ if st.button("Lancer l'analyse"):
     }
     
     try:
-        response = requests.post("http://api:8000/predict", json=payload)
+        response = requests.post(f"{API_URL}/predict", json=data)
         res = response.json()
         
         if response.status_code == 200:
