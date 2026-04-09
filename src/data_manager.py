@@ -6,7 +6,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 
-# Configuration (Chemin relatif gardé depuis la version de Mahamat)
+# Configuration
 DATA_PATH = "data/bank-risk-manage_dataset.csv"
 MODEL_DIR = "models"
 
@@ -94,3 +94,5 @@ if __name__ == "__main__":
         
     except Exception as e:
         print(f"❌ ÉCHEC DU TEST : {e}")
+
+    

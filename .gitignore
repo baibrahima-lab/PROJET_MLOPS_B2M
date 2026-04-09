@@ -1,8 +1,19 @@
+# Python & Bytecode
 __pycache__/
+*.pyc
 .DS_Store
+
+# Jupyter
 .ipynb_checkpoints/
+
+# MLflow (CRUCIAL)
 mlruns/
+mlflow.db
+
+# Environnements virtuels
 env/
 venv/
-*.pyc
-mlruns/
+.venv/
+
+# Données volumineuses (Optionnel)
+# data/*.csv

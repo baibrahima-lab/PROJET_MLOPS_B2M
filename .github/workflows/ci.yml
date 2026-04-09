@@ -1,10 +1,11 @@
-name: B2M MLOps Pipeline
+name: B2M MLOps Pipeline CI
 
 on:
   push:
-    branches: [ main, master ]
+    # On ajoute 'developpement' car c'est là que tu travailles actuellement
+    branches: [ main, master, developpement ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, developpement ]
 
 jobs:
   build-and-test:
@@ -12,29 +13,32 @@ jobs:
 
     steps:
     - name: Checkout du code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4 # Version plus récente
 
     - name: Installation de Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.12' # Synchronisé avec ton Docker
 
     - name: Installation des dépendances
       run: |
         python -m pip install --upgrade pip
-        pip install pandas xgboost scikit-learn joblib fastapi uvicorn pytest httpx
+        # On installe tout d'un coup via ton fichier officiel
+        pip install -r requirements.txt
+        pip install pytest httpx 
 
-    - name: Vérification de la structure
-      run: |
-        ls -R
+    - name: 📂 Vérification de la structure (Debug)
+      run: ls -R
         
-    - name: Test d'entraînement (Dry Run)
+    - name: 🧪 Test du Data Manager (Dry Run)
       run: |
-        export PYTHONPATH=.
-        python3 -m src.train
+        # On définit le PYTHONPATH pour que les imports src.xxx fonctionnent
+        export PYTHONPATH=$PYTHONPATH:.
+        # On lance le manager pour voir s'il génère bien les artefacts
+        python3 src/data_manager.py
         
-    - name: Lancement des tests unitaires
+    - name: ⚙️ Lancement des tests unitaires
       run: |
-        export PYTHONPATH=.
-        # On lancera pytest ici quand on aura créé le dossier tests
-        echo "Tests validés"
+        export PYTHONPATH=$PYTHONPATH:.
+        # Pytest va chercher tous les fichiers test_*.py dans ton projet
+        pytest
