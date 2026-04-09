@@ -6,7 +6,7 @@ import requests
 
 # Lancer l'API en arrière-plan si elle n'est pas détectée
 try:
-    requests.get("http://localhost:8000/")
+    requests.get("http://127.0.0.1:8000/predict")
 except:
     subprocess.Popen(["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"])
     time.sleep(5) # On laisse 5s à l'API pour démarrer
