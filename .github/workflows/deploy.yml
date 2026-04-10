@@ -2,7 +2,7 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ developpement, main ] # Se déclenche au push
+    branches: [ developpement, main ] # Se déclenche quand tu push sur l'une de ces branches
 
 jobs:
   deploy:
@@ -15,6 +15,8 @@ jobs:
 
       - name: Push to Hugging Face
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }} # Ton token secret
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git push --force https://baibrahima:$HF_TOKEN@huggingface.co/spaces/ton-username/ton-space-name main
+          # On pousse la branche locale actuelle vers la branche main de Hugging Face
+          # La syntaxe 'HEAD:main' est magique : elle prend ta branche actuelle (peu importe son nom)
+          git push --force https://baibrahima:$HF_TOKEN@huggingface.co/spaces/baibrahima/PROJET_MLOPS_B2M HEAD:main
