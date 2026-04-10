@@ -1,0 +1,20 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ developpement, main ] # Se déclenche au push
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Push to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }} # Ton token secret
+        run: |
+          git push --force https://baibrahima:$HF_TOKEN@huggingface.co/spaces/ton-username/ton-space-name main
