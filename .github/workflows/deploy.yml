@@ -2,7 +2,7 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ developpement, main ] # Se déclenche quand tu push sur l'une de ces branches
+    branches: [ developpement, main ] # Se déclenche au push sur ces branches
 
 jobs:
   deploy:
@@ -12,11 +12,12 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+          lfs: true # Active Git LFS si ton modèle .pkl est gros
 
       - name: Push to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # On pousse la branche locale actuelle vers la branche main de Hugging Face
-          # La syntaxe 'HEAD:main' est magique : elle prend ta branche actuelle (peu importe son nom)
+          # Cette commande prend ta branche actuelle et l'envoie sur la branche 'main' de HF
+          # Elle utilise le token secret pour l'authentification
           git push --force https://baibrahima:$HF_TOKEN@huggingface.co/spaces/baibrahima/PROJET_MLOPS_B2M HEAD:main
